@@ -126,7 +126,20 @@ export function applyEnvironment(variables: Record<string, string | undefined>, 
 
 /** Spawns a command through the DSH subprocess runtime, which strips credential-shaped environment variables. */
 export async function runAsWorker(subprocess: SubprocessRuntime, argv: string[], cwd: string, signal: AbortSignal, env?: Record<string, string>): Promise<string> {
-  const handle = subprocess.spawn({ argv, cwd, graceMs: 2000, signal, ...env ? { env } : {}, stdio: { stdin: 'ignore', stdout: { maxBytes: 1 << 20 }, stderr: { maxBytes: 1 << 16 } } })
+  let finalArgv = argv
+  const finalEnv: Record<string, string> = { ...env }
+  if (process.platform === 'win32') {
+    while (finalArgv[0] === 'env') {
+      finalArgv = finalArgv.slice(1)
+      while (finalArgv.length && finalArgv[0]?.includes('=')) {
+        const item = finalArgv[0]
+        const eq = item.indexOf('=')
+        finalEnv[item.slice(0, eq)] = item.slice(eq + 1)
+        finalArgv = finalArgv.slice(1)
+      }
+    }
+  }
+  const handle = subprocess.spawn({ argv: finalArgv, cwd, graceMs: 2000, signal, ...finalEnv ? { env: finalEnv } : {}, stdio: { stdin: 'ignore', stdout: { maxBytes: 1 << 20 }, stderr: { maxBytes: 1 << 16 } } })
   const { exitCode } = await handle.done
   const read = (reader: SubprocessOutputReader | undefined): string => reader?.readFrom(0).text ?? ''
   if (exitCode === 0) return read(handle.collected.stdout)
